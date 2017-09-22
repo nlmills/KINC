@@ -3,11 +3,12 @@ DEBUG  ?= 0
 CXX    ?= g++
 
 # compiler flags
-GSLDIR    ?= /software/gsl/2.3
-MIXMODDIR ?= $(HOME)/software/libmixmod
+GSLDIR      ?= /software/gsl/2.3
+MLEARNDIR   ?= $(HOME)/software/libmlearn
+OPENBLASDIR ?= $(HOME)/software/OpenBLAS-0.2.19
 
 CXXFLAGS = -I $(GSLDIR)/include \
-           -I $(MIXMODDIR)/include \
+           -I $(MLEARNDIR)/include \
            -std=c++11
 
 ifeq ($(DEBUG), 1)
@@ -19,8 +20,8 @@ endif
 # linker flags
 LDFLAGS = -lm \
           -lgsl -lgslcblas \
-          -llapack -lblas -lpthread \
-          -L $(MIXMODDIR)/lib -lmixmod -lmixmod_newmat
+          -L $(OPENBLASDIR)/lib -lopenblas \
+          -L $(MLEARNDIR)/lib -lmlearn
 
 # object files, executables
 OBJS = \

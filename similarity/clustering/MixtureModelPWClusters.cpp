@@ -13,12 +13,9 @@ MixtureModelPWClusters::MixtureModelPWClusters(PairWiseSet *pwset, int min_obs,
   this->min_obs = min_obs;
   this->method = method;
   this->num_methods = num_methods;
-  labels = NULL;
-  pwcl = NULL;
-  data = NULL;
 
   // Create the PairWiseClusterList object
-  pwcl = new PairWiseClusterList(pwset);
+  this->pwcl = new PairWiseClusterList(pwset);
 
   // Make sure we have the correct number of observations before preparing
   // for the comparision.
@@ -27,145 +24,61 @@ MixtureModelPWClusters::MixtureModelPWClusters(PairWiseSet *pwset, int min_obs,
   }
 
   // Create the Gaussian Data object and set the dataDescription object.
-  this->data = (double **) malloc(sizeof(double *) * pwset->n_clean);
-  for (int i = 0; i < pwset->n_clean ; i++) {
-    this->data[i] = (double *) malloc(sizeof(double) * 2);
-    this->data[i][0] = pwset->x_clean[i];
-    this->data[i][1] = pwset->y_clean[i];
-  }
+  this->data = ML::Matrix(2, pwset->n_clean);
 
+  for ( int i = 0; i < pwset->n_clean; i++ ) {
+    this->data.elem(0, i) = pwset->x_clean[i];
+    this->data.elem(1, i) = pwset->y_clean[i];
+  }
 }
 
 /**
  * Destructor for the MixMod class.
  */
 MixtureModelPWClusters::~MixtureModelPWClusters() {
-  // Free the data array.
-  if (data) {
-    for (int i = 0; i < pwset->n_clean; i++) {
-      free(data[i]);
-    }
-    free(data);
-  }
-  if (labels) {
-    free(labels);
-  }
-  delete pwcl;
 }
 
 /**
  * Executes mixture model clustering.
  */
 void MixtureModelPWClusters::run(char * criterion, int max_clusters) {
-  int64_t lowest_cluster_num = 9;
-  int found = 0;
-
   // Make sure we have the correct number of observations before performing
   // the comparision.
   if (this->pwset->n_clean < this->min_obs) {
     return;
   }
 
-  // The data we are using is quantitative, so set the data type.
-  XEM::GaussianData * gdata = new XEM::GaussianData(pwset->n_clean, 2, data);
-  XEM::DataDescription dataDescription(gdata);
-
-  // Set the number of clusters to be tested to 9.
-  vector<int64_t> nbCluster;
-  for (int i = 1; i <= max_clusters; i++) {
-    nbCluster.push_back(i);
+  // construct clustering layers for 1..max_clusters
+  std::vector<ML::ClusteringLayer *> clus_layers;
+  for ( int i = 1; i <= max_clusters; i++ ) {
+    clus_layers.push_back(new ML::GMMLayer(i));
   }
 
-  // Create the ClusteringInput object.
-  XEM::ClusteringInput cInput(nbCluster, dataDescription);
+  // construct criterion layer
+  ML::CriterionLayer *crit_layer;
 
-  // Set the criterion
-  cInput.removeCriterion(0);
   if (strcmp(criterion, "BIC") == 0) {
-    cInput.addCriterion(XEM::BIC);
+    crit_layer = new ML::BICLayer();
   }
   else if (strcmp(criterion, "ICL") == 0) {
-    cInput.addCriterion(XEM::ICL);
-  }
-  else if (strcmp(criterion, "NEC") == 0) {
-    cInput.addCriterion(XEM::NEC);
-  }
-  else if (strcmp(criterion, "CV") == 0) {
-    cInput.addCriterion(XEM::CV);
-  }
-  else if (strcmp(criterion, "DCV") == 0) {
-    cInput.addCriterion(XEM::DCV);
+    crit_layer = new ML::ICLLayer();
   }
 
-  // Finalize input: run a series of sanity checks on it
-  cInput.finalize();
+  // run clustering
+  ML::ClusteringModel model(clus_layers, crit_layer);
+  model.predict(this->data);
 
-  // Run XEM::ClusteringMain 5 times to find the iteration with the
-  // lowest number of clusters.  We do this because the MixModLib can
-  // detect different numbers of clusters depending on the random starting
-  // point in the algorithm.
-  for (int i = 0; i < 1; i++) {
-
-    // Find clusters.
-    XEM::ClusteringMain cMain(&cInput);
-    cMain.run();
-
-    // Create a new XEM::ClusteringOutput object
-    XEM::ClusteringOutput * cOutput = cMain.getOutput();
-
-    // Order the clusters using BIC.
-    if (strcmp(criterion, "BIC") == 0) {
-      cOutput->sort(XEM::BIC);
-    }
-    else if (strcmp(criterion, "ICL") == 0) {
-      cOutput->sort(XEM::ICL);
-    }
-    else if (strcmp(criterion, "NEC") == 0) {
-      cOutput->sort(XEM::NEC);
-    }
-    else if (strcmp(criterion, "CV") == 0) {
-      cOutput->sort(XEM::CV);
-    }
-    else if (strcmp(criterion, "DCV") == 0) {
-      cOutput->sort(XEM::DCV);
-    }
-
-    if (cOutput->atLeastOneEstimationNoError()) {
-      found = 1;
-
-      // Get the best XEM::ClusteringModelOutput
-      XEM::ClusteringModelOutput* cMOutput = cOutput->getClusteringModelOutput().front();
-      XEM::LabelDescription * ldescription = cMOutput->getLabelDescription();
-      XEM::Label * label = ldescription->getLabel();
-      int64_t * cLabels = label->getTabLabel();
-
-      // Find the number of clusters
-      int64_t num_clusters = 0;
-      for (int i = 0; i < this->pwset->n_clean; i++) {
-        if (cLabels[i] > num_clusters) {
-          num_clusters = cLabels[i];
-        }
-      }
-
-      // If this is the fewest number of clusters we've seen then copy
-      // the labels over.
-      if (num_clusters < lowest_cluster_num) {
-        lowest_cluster_num = num_clusters;
-        if (this->labels == NULL) {
-          this->labels = (int64_t *) malloc(sizeof(int64_t) * this->pwset->n_clean);
-        }
-        for (int i = 0; i < this->pwset->n_clean; i++) {
-          this->labels[i] = cLabels[i];
-        }
-      }
-      delete cLabels;
-    }
-  }
-  delete gdata;
-
-  // If a cluster was not found then simply return.
-  if (!found) {
+  if ( model.best_layer() == nullptr ) {
     return;
+  }
+
+  // get clustering output
+  this->labels = model.best_layer()->output();
+  int num_clusters = model.best_layer()->num_clusters();
+
+  // temporary code to make labels 1-based
+  for ( size_t i = 0; i < this->labels.size(); i++ ) {
+    this->labels[i]++;
   }
 
   // Iterate through the clusters in the set that was selected.  We are
@@ -239,9 +152,15 @@ void MixtureModelPWClusters::run(char * criterion, int max_clusters) {
       PairWiseCluster * cluster = new PairWiseCluster(this->pwset, this->method, this->num_methods);
       cluster->setClusterSamples(cluster_samples, true);
       cluster->doSimilarity(this->min_obs);
-//        cluster->printCluster();
       this->pwcl->addCluster(cluster);
     }
     cluster_num++;
   }
+
+  // cleanup
+  while ( !clus_layers.empty() ) {
+      delete clus_layers.back();
+      clus_layers.pop_back();
+  }
+  delete crit_layer;
 }
