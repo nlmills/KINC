@@ -76,15 +76,10 @@ void MixtureModelPWClusters::run(char * criterion, int max_clusters) {
   this->labels = model.best_layer()->output();
   int num_clusters = model.best_layer()->num_clusters();
 
-  // temporary code to make labels 1-based
-  for ( size_t i = 0; i < this->labels.size(); i++ ) {
-    this->labels[i]++;
-  }
-
   // Iterate through the clusters in the set that was selected.  We are
   // done iterating through the clusters when we run out of labels in the
   // labels array.
-  int cluster_num = 1;
+  int cluster_num = 0;
   int cluster_samples[this->pwset->n_clean];
   bool done = false;
   while (!done) {
